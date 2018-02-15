@@ -49,7 +49,9 @@ const addIntent = [
   }
 ];
 
-var context = {};
+let context = {};
+
+query();
 
 function extractEntities(entities) {
   return _.mapValues(entities, e => e[0].value);
@@ -57,20 +59,25 @@ function extractEntities(entities) {
 
 function query () {
   let question = message;
-  if (context.next) question = [{
-    type: 'input',
-    name: 'message',
-    message: context.next.text
-  }];
-  return prompt(question).then(answers => {
-    return client.message(answers.message, {}, false, true).then(data => {
+  if (context.next)
+    question = [
+      {
+        type: 'input',
+        name: 'message',
+        message: context.next.text
+      }
+    ];
+  return prompt(question).then(answers =>
+    client.message(answers.message, {}, false, true).then(data => {
       const entities = data.entities;
+
       let next = false;
       if (entities.intent) {
         console.log(`Recognized intent: "${entities.intent[0].value}" Confidence: ${entities.intent[0].confidence}`);
         next = nextAction({intent: entities.intent[0].value, context, entities: extractEntities(entities)});
       } else
         console.log(`No intent recognized :(`);
+
       let other = Object.keys(entities);
       other = other.filter(e => !(e === 'intent'));
       if (other.length > 0) {
@@ -85,13 +92,12 @@ function query () {
       if (next) {
         console.log(`Next Action: ask_${next.name}`);
         context.next = next;
-      } else {
+      } else
         context = {};
-      }
       return isCorrect(answers.message, entities);
     })
-    .catch(console.error);
-  });
+    .catch(console.error)
+  );
 }
 
 function isCorrect(text, entities) {
@@ -99,38 +105,40 @@ function isCorrect(text, entities) {
     if (a.confirm) {
       entities = _.map(entities, (e, k) => {
         const selected = e[0];
+
         const entity = {
           entity: k,
           value: selected.value
         };
+
         if (selected._start) {
           _.set(entity, 'start', selected._start);
           _.set(entity, 'end', selected._end);
         }
         return entity;
       });
-      return witRequest({text, entities});
-    } else {
-      console.log("OK... :(");
-      return prompt(newIntent).then(a => {
-        if (a.confirm) {
-          return prompt(addIntent).then(a => {
-            entities = [
-              {
-                entity: 'intent',
-                value: a.intent
-              }
-            ];
-            return witRequest({text, entities});
-          });
-        }
-        query();
-      });
+      return witTrainRequest({text, entities});
     }
+    console.log("OK... :(");
+
+    return prompt(newIntent).then(a => {
+      if (a.confirm) {
+        return prompt(addIntent).then(a => {
+          entities = [
+            {
+              entity: 'intent',
+              value: a.intent
+            }
+          ];
+          return witTrainRequest({text, entities});
+        });
+      }
+      query();
+    });
   });
 }
 
-function witRequest ({ text, entities }) {
+function witTrainRequest ({ text, entities }) {
   const body = JSON.stringify([{ text, entities }]);
   return fetch("https://api.wit.ai/samples?v=20170307", {
     method: 'POST',
@@ -142,10 +150,10 @@ function witRequest ({ text, entities }) {
       console.log("The app is now training the new record...");
       query();
     }
-    else if (json.error)
+    if (json.error) {
       console.log("Wit training failed...");
+      console.log(json.error);
+    }
   })
   .catch(err => console.log(`Something bad happened... ${err}`));
 }
-
-query();
